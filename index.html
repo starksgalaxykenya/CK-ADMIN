@@ -13,17 +13,7 @@
     <link rel="apple-touch-icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' fill='%23137D0F'/%3E%3Ctext x='50' y='67' font-size='50' text-anchor='middle' fill='white' font-family='Arial'%3E🚗%3C/text%3E%3C/svg%3E">
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <style>
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
-        * { font-family: 'Inter', sans-serif; }
-        body { background: linear-gradient(135deg, #1a3a1a 0%, #2a5a2a 100%); }
-        .admin-card { background: rgba(30,45,30,0.95); backdrop-filter: blur(12px); border: 1px solid rgba(19,125,15,0.3); }
-        .brand-bg { background-color: #137D0F; }
-        .brand-color { color: #137D0F; }
-        .permission-badge { background: rgba(19,125,15,0.2); border: 1px solid rgba(19,125,15,0.4); }
-        .toast-notification { position: fixed; top: 20px; right: 20px; z-index: 9999; animation: slideIn 0.3s ease; }
-        @keyframes slideIn { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
-    </style>
+    <link rel="stylesheet" href="styles.css">
 </head>
 <body class="min-h-screen">
     <!-- Navigation -->
@@ -114,9 +104,14 @@
                         <h3 class="text-xl font-bold text-white">User Permissions Manager</h3>
                         <p class="text-gray-400 text-sm mt-1">Assign which modules each user can access in the main dashboard</p>
                     </div>
-                    <button id="refreshUsersBtn" class="bg-green-700 hover:bg-green-600 px-5 py-2 rounded-lg transition">
-                        <i class="fas fa-sync-alt mr-2"></i>Refresh Users
-                    </button>
+                    <div class="flex gap-3">
+                        <button id="refreshUsersBtn" class="bg-green-700 hover:bg-green-600 px-5 py-2 rounded-lg transition">
+                            <i class="fas fa-sync-alt mr-2"></i>Refresh Users
+                        </button>
+                        <button id="syncAllUsersBtn" class="bg-blue-700 hover:bg-blue-600 px-5 py-2 rounded-lg transition">
+                            <i class="fas fa-cloud-sync-alt mr-2"></i>Sync All Users
+                        </button>
+                    </div>
                 </div>
             </div>
             <div class="overflow-x-auto">
@@ -145,7 +140,7 @@
             <h3 class="text-xl font-bold text-white mb-4"><i class="fas fa-user-plus mr-2 brand-color"></i>Create New User Account</h3>
             <form id="createUserForm" class="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <input type="email" id="newUserEmail" placeholder="Email address" class="px-4 py-3 rounded-lg bg-gray-800 border border-gray-700 text-white focus:border-green-500 outline-none" required>
-                <input type="password" id="newUserPassword" placeholder="Password" class="px-4 py-3 rounded-lg bg-gray-800 border border-gray-700 text-white focus:border-green-500 outline-none" required>
+                <input type="password" id="newUserPassword" placeholder="Password (min 6 characters)" class="px-4 py-3 rounded-lg bg-gray-800 border border-gray-700 text-white focus:border-green-500 outline-none" required>
                 <div class="flex gap-2">
                     <button type="submit" class="bg-green-700 hover:bg-green-600 px-6 py-3 rounded-lg font-semibold transition flex-1">
                         <i class="fas fa-plus mr-2"></i>Create User
@@ -155,11 +150,16 @@
                     </button>
                 </div>
             </form>
-            <p class="text-gray-500 text-xs mt-3">New users will have no permissions by default. Assign permissions above.</p>
+            <p class="text-gray-500 text-xs mt-3">New users will have no permissions by default. Assign permissions above. Users created manually in Firebase Auth will auto-appear.</p>
         </div>
     </div>
 
-    <!-- Firebase Import and Script -->
+    <!-- Sync Indicator -->
+    <div id="syncIndicator" class="sync-indicator hidden">
+        <i class="fas fa-sync-alt fa-spin mr-2"></i>Syncing users...
+    </div>
+
+    <!-- Scripts -->
     <script type="importmap">
         {
             "imports": {
@@ -169,424 +169,7 @@
             }
         }
     </script>
-
-    <script type="module">
-        import { initializeApp } from "firebase/app";
-        import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged, createUserWithEmailAndPassword } from "firebase/auth";
-        import { getFirestore, doc, setDoc, getDoc, getDocs, updateDoc, collection, query, where, deleteDoc } from "firebase/firestore";
-
-        const firebaseConfig = {
-            apiKey: "AIzaSyCuUKCxYx0jYKqWOQaN82K5zFGlQsKQsK0",
-            authDomain: "ck-manager-1abdc.firebaseapp.com",
-            projectId: "ck-manager-1abdc",
-            storageBucket: "ck-manager-1abdc.firebasestorage.app",
-            messagingSenderId: "890017473158",
-            appId: "1:890017473158:web:528e1eebc4b67bd54ca707",
-            measurementId: "G-7Z71W1NSX4"
-        };
-
-        const app = initializeApp(firebaseConfig);
-        const auth = getAuth(app);
-        const db = getFirestore(app);
-
-        let currentAdminUser = null;
-        let allUsers = [];
-
-        // Toast notification
-        function showToast(message, isError = false) {
-            const existing = document.querySelector('.toast-notification');
-            if (existing) existing.remove();
-            
-            const toast = document.createElement('div');
-            toast.className = `toast-notification ${isError ? 'bg-red-600' : 'bg-green-600'} text-white px-6 py-3 rounded-lg shadow-xl flex items-center`;
-            toast.innerHTML = `<i class="fas ${isError ? 'fa-exclamation-triangle' : 'fa-check-circle'} mr-3"></i>${message}`;
-            document.body.appendChild(toast);
-            setTimeout(() => toast.remove(), 3000);
-        }
-
-        // Check if user is admin
-        async function isUserAdmin(user) {
-            if (!user) return false;
-            const permDoc = await getDoc(doc(db, "users_permissions", user.uid));
-            if (permDoc.exists()) {
-                return permDoc.data().isAdmin === true;
-            }
-            return false;
-        }
-
-        // Load all users from Firestore meta
-        async function loadAllUsers() {
-            try {
-                const usersMetaSnap = await getDocs(collection(db, "users_meta"));
-                const usersList = [];
-                
-                for (const docSnap of usersMetaSnap.docs) {
-                    const userData = docSnap.data();
-                    const uid = docSnap.id;
-                    const permDoc = await getDoc(doc(db, "users_permissions", uid));
-                    let permissions = { docs: false, finance: false, fleet: false, hr: false, isAdmin: false };
-                    if (permDoc.exists()) {
-                        permissions = permDoc.data();
-                    }
-                    usersList.push({
-                        uid,
-                        email: userData.email,
-                        ...permissions
-                    });
-                }
-                
-                allUsers = usersList;
-                renderUsersTable(usersList);
-                updateStats(usersList);
-                return usersList;
-            } catch (error) {
-                console.error("Error loading users:", error);
-                showToast("Failed to load users: " + error.message, true);
-                return [];
-            }
-        }
-
-        // Update statistics
-        function updateStats(users) {
-            document.getElementById('totalUsers').textContent = users.length;
-            let totalPerms = 0;
-            let docsCount = 0, fleetCount = 0;
-            users.forEach(u => {
-                if (u.docs) { totalPerms++; docsCount++; }
-                if (u.finance) totalPerms++;
-                if (u.fleet) { totalPerms++; fleetCount++; }
-                if (u.hr) totalPerms++;
-            });
-            document.getElementById('activePermissions').textContent = totalPerms;
-            document.getElementById('docsCount').textContent = docsCount;
-            document.getElementById('fleetCount').textContent = fleetCount;
-        }
-
-        // Render users table
-        function renderUsersTable(users) {
-            const tbody = document.getElementById('usersTableBody');
-            if (users.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="8" class="text-center py-8 text-gray-400"><i class="fas fa-user-slash mr-2"></i>No users found</td></tr>';
-                return;
-            }
-            
-            tbody.innerHTML = users.map(user => `
-                <tr class="border-b border-gray-700 hover:bg-gray-800/30 transition">
-                    <td class="px-6 py-4">
-                        <div class="flex items-center">
-                            <div class="w-8 h-8 rounded-full bg-gray-700 flex items-center justify-center">
-                                <i class="fas fa-user text-sm text-gray-400"></i>
-                            </div>
-                        </div>
-                    </td>
-                    <td class="px-6 py-4 text-gray-300">${escapeHtml(user.email)}</td>
-                    <td class="px-6 py-4 text-center">
-                        <label class="inline-flex items-center cursor-pointer">
-                            <input type="checkbox" class="perm-checkbox w-5 h-5 rounded border-gray-600 bg-gray-700 text-green-600 focus:ring-green-500" 
-                                data-uid="${user.uid}" data-perm="docs" ${user.docs ? 'checked' : ''}>
-                        </label>
-                    </td>
-                    <td class="px-6 py-4 text-center">
-                        <label class="inline-flex items-center cursor-pointer">
-                            <input type="checkbox" class="perm-checkbox w-5 h-5 rounded border-gray-600 bg-gray-700 text-green-600 focus:ring-green-500" 
-                                data-uid="${user.uid}" data-perm="finance" ${user.finance ? 'checked' : ''}>
-                        </label>
-                    </td>
-                    <td class="px-6 py-4 text-center">
-                        <label class="inline-flex items-center cursor-pointer">
-                            <input type="checkbox" class="perm-checkbox w-5 h-5 rounded border-gray-600 bg-gray-700 text-green-600 focus:ring-green-500" 
-                                data-uid="${user.uid}" data-perm="fleet" ${user.fleet ? 'checked' : ''}>
-                        </label>
-                    </td>
-                    <td class="px-6 py-4 text-center">
-                        <label class="inline-flex items-center cursor-pointer">
-                            <input type="checkbox" class="perm-checkbox w-5 h-5 rounded border-gray-600 bg-gray-700 text-green-600 focus:ring-green-500" 
-                                data-uid="${user.uid}" data-perm="hr" ${user.hr ? 'checked' : ''}>
-                        </label>
-                    </td>
-                    <td class="px-6 py-4 text-center">
-                        <label class="inline-flex items-center cursor-pointer">
-                            <input type="checkbox" class="admin-checkbox w-5 h-5 rounded border-gray-600 bg-gray-700 text-yellow-600 focus:ring-yellow-500" 
-                                data-uid="${user.uid}" ${user.isAdmin ? 'checked' : ''}>
-                        </label>
-                    </td>
-                    <td class="px-6 py-4 text-center">
-                        <button class="save-user-btn bg-green-700 hover:bg-green-600 px-4 py-1.5 rounded-lg text-sm transition" data-uid="${user.uid}">
-                            <i class="fas fa-save mr-1"></i>Save
-                        </button>
-                    </td>
-                </tr>
-            `).join('');
-            
-            // Attach event listeners to save buttons
-            document.querySelectorAll('.save-user-btn').forEach(btn => {
-                btn.addEventListener('click', async (e) => {
-                    const uid = btn.getAttribute('data-uid');
-                    await saveUserPermissions(uid);
-                });
-            });
-        }
-
-        // Save permissions for a specific user
-        async function saveUserPermissions(uid) {
-            try {
-                const row = document.querySelector(`.save-user-btn[data-uid="${uid}"]`).closest('tr');
-                const permCheckboxes = row.querySelectorAll('.perm-checkbox');
-                const adminCheckbox = row.querySelector('.admin-checkbox');
-                
-                const permissions = {
-                    docs: false,
-                    finance: false,
-                    fleet: false,
-                    hr: false,
-                    isAdmin: adminCheckbox ? adminCheckbox.checked : false
-                };
-                
-                permCheckboxes.forEach(cb => {
-                    const perm = cb.getAttribute('data-perm');
-                    permissions[perm] = cb.checked;
-                });
-                
-                await updateDoc(doc(db, "users_permissions", uid), permissions);
-                showToast(`Permissions updated for ${uid.substring(0, 8)}...`);
-                
-                // Refresh stats and table
-                await loadAllUsers();
-            } catch (error) {
-                console.error("Error saving permissions:", error);
-                showToast("Failed to save permissions: " + error.message, true);
-            }
-        }
-
-        // Create new user
-        async function createNewUser(email, password) {
-            try {
-                const userCredential = await createUserWithEmailAndPassword(auth, email, password);
-                const newUser = userCredential.user;
-                
-                // Save to users_meta
-                await setDoc(doc(db, "users_meta", newUser.uid), {
-                    email: email,
-                    createdAt: new Date().toISOString()
-                });
-                
-                // Initialize permissions (all false by default)
-                await setDoc(doc(db, "users_permissions", newUser.uid), {
-                    docs: false,
-                    finance: false,
-                    fleet: false,
-                    hr: false,
-                    isAdmin: false
-                });
-                
-                showToast(`User ${email} created successfully!`);
-                await loadAllUsers();
-                
-                // Reset form
-                document.getElementById('newUserEmail').value = '';
-                document.getElementById('newUserPassword').value = '';
-                
-            } catch (error) {
-                console.error("Error creating user:", error);
-                if (error.code === 'auth/email-already-in-use') {
-                    showToast("Email already exists", true);
-                } else {
-                    showToast("Failed to create user: " + error.message, true);
-                }
-            }
-        }
-
-        // Helper to escape HTML
-        function escapeHtml(str) {
-            if (!str) return '';
-            return str.replace(/[&<>]/g, function(m) {
-                if (m === '&') return '&amp;';
-                if (m === '<') return '&lt;';
-                if (m === '>') return '&gt;';
-                return m;
-            });
-        }
-
-        // Login handler
-        document.getElementById('adminLoginForm').addEventListener('submit', async (e) => {
-            e.preventDefault();
-            const email = document.getElementById('adminEmailInput').value;
-            const password = document.getElementById('adminPasswordInput').value;
-            
-            try {
-                const userCredential = await signInWithEmailAndPassword(auth, email, password);
-                const user = userCredential.user;
-                
-                // Verify admin status
-                const isAdminUser = await isUserAdmin(user);
-                if (!isAdminUser) {
-                    await signOut(auth);
-                    showToast("Access denied: You don't have admin privileges", true);
-                    return;
-                }
-                
-                currentAdminUser = user;
-                document.getElementById('adminEmail').textContent = user.email;
-                document.getElementById('loginSection').classList.add('hidden');
-                document.getElementById('adminDashboard').classList.remove('hidden');
-                await loadAllUsers();
-                showToast("Welcome to Admin Panel");
-                
-            } catch (error) {
-                console.error("Login error:", error);
-                showToast("Login failed: " + error.message, true);
-            }
-        });
-
-        // Logout handler
-        document.getElementById('logoutBtn').addEventListener('click', async () => {
-            await signOut(auth);
-            currentAdminUser = null;
-            document.getElementById('loginSection').classList.remove('hidden');
-            document.getElementById('adminDashboard').classList.add('hidden');
-            document.getElementById('adminEmailInput').value = '';
-            document.getElementById('adminPasswordInput').value = '';
-            showToast("Logged out successfully");
-        });
-
-        // Create user form
-        document.getElementById('createUserForm').addEventListener('submit', async (e) => {
-            e.preventDefault();
-            const email = document.getElementById('newUserEmail').value;
-            const password = document.getElementById('newUserPassword').value;
-            
-            if (!email || !password) {
-                showToast("Please fill in all fields", true);
-                return;
-            }
-            
-            if (password.length < 6) {
-                showToast("Password must be at least 6 characters", true);
-                return;
-            }
-            
-            await createNewUser(email, password);
-        });
-
-        // Reset form
-        document.getElementById('resetFormBtn').addEventListener('click', () => {
-            document.getElementById('newUserEmail').value = '';
-            document.getElementById('newUserPassword').value = '';
-        });
-
-        // Refresh button
-        document.getElementById('refreshUsersBtn').addEventListener('click', async () => {
-            await loadAllUsers();
-            showToast("Users list refreshed");
-        });
-
-        // Check auth state on load
-        onAuthStateChanged(auth, async (user) => {
-            if (user) {
-                const isAdminUser = await isUserAdmin(user);
-                if (isAdminUser) {
-                    currentAdminUser = user;
-                    document.getElementById('adminEmail').textContent = user.email;
-                    document.getElementById('loginSection').classList.add('hidden');
-                    document.getElementById('adminDashboard').classList.remove('hidden');
-                    await loadAllUsers();
-                } else {
-                    await signOut(auth);
-                    document.getElementById('loginSection').classList.remove('hidden');
-                    document.getElementById('adminDashboard').classList.add('hidden');
-                }
-            } else {
-                document.getElementById('loginSection').classList.remove('hidden');
-                document.getElementById('adminDashboard').classList.add('hidden');
-            }
-        });
-
-        // PWA Service Worker Registration
-        if ('serviceWorker' in navigator) {
-            window.addEventListener('load', () => {
-                navigator.serviceWorker.register('/sw.js').then(registration => {
-                    console.log('SW registered: ', registration);
-                }).catch(registrationError => {
-                    console.log('SW registration failed: ', registrationError);
-                });
-            });
-        }
-    </script>
-
-    <!-- Service Worker Script (inline registration handled, but we need to create sw.js dynamically via blob? Actually we must serve it. Since GitHub Pages serves static files, we will inject the service worker file creation via a script that generates it if missing? For PWA to work fully, sw.js must exist at root. But since we cannot modify server, we dynamically create it using JavaScript and store via Cache API? Not ideal. Instead, we will create a synthetic service worker inline via Blob and register? That may cause scope issues. Better: Add a meta tag and ensure the sw.js is served. In this single file environment, we can create a data URI service worker and register? But service workers require a valid JavaScript URL. I'll generate a proper service worker using a blob URL that is persistent. However, for simplicity and full PWA compliance on GitHub Pages, we'll include an inline service worker definition via Object URL. This ensures PWA capabilities without altering existing structure. -->
-    <script>
-        (function() {
-            // Create a service worker script dynamically
-            const swCode = `
-                const CACHE_NAME = 'ck-admin-pwa-v1';
-                const urlsToCache = [
-                    '/',
-                    '/index.html'
-                ];
-                self.addEventListener('install', event => {
-                    event.waitUntil(
-                        caches.open(CACHE_NAME)
-                            .then(cache => cache.addAll(urlsToCache))
-                    );
-                });
-                self.addEventListener('fetch', event => {
-                    event.respondWith(
-                        caches.match(event.request)
-                            .then(response => response || fetch(event.request))
-                    );
-                });
-                self.addEventListener('activate', event => {
-                    event.waitUntil(
-                        caches.keys().then(cacheNames => {
-                            return Promise.all(
-                                cacheNames.map(cache => {
-                                    if (cache !== CACHE_NAME) {
-                                        return caches.delete(cache);
-                                    }
-                                })
-                            );
-                        })
-                    );
-                });
-            `;
-            const blob = new Blob([swCode], { type: 'application/javascript' });
-            const swUrl = URL.createObjectURL(blob);
-            if ('serviceWorker' in navigator) {
-                navigator.serviceWorker.register(swUrl).then(reg => {
-                    console.log('Dynamic SW registered successfully', reg);
-                }).catch(err => {
-                    console.warn('SW registration failed', err);
-                });
-            }
-        })();
-    </script>
-    <!-- PWA Manifest Generator (inline manifest) -->
-    <script>
-        (function() {
-            const manifestObj = {
-                name: "Cars Kenya Admin",
-                short_name: "CK Admin",
-                description: "Admin Panel for Cars Kenya - User & Permission Management",
-                start_url: ".",
-                display: "standalone",
-                theme_color: "#137D0F",
-                background_color: "#1a3a1a",
-                icons: [
-                    {
-                        src: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' fill='%23137D0F'/%3E%3Ctext x='50' y='67' font-size='50' text-anchor='middle' fill='white' font-family='Arial'%3E🚗%3C/text%3E%3C/svg%3E",
-                        sizes: "any",
-                        type: "image/svg+xml",
-                        purpose: "any maskable"
-                    }
-                ]
-            };
-            const manifestBlob = new Blob([JSON.stringify(manifestObj)], { type: 'application/json' });
-            const manifestURL = URL.createObjectURL(manifestBlob);
-            const manifestLink = document.querySelector('link[rel="manifest"]');
-            if (manifestLink) {
-                manifestLink.href = manifestURL;
-            }
-        })();
-    </script>
+    <script type="module" src="admin.js"></script>
+    <script src="pwa-setup.js"></script>
 </body>
 </html>
