@@ -1,0 +1,86 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+
+* {
+    font-family: 'Inter', sans-serif;
+}
+
+body {
+    background: linear-gradient(135deg, #1a3a1a 0%, #2a5a2a 100%);
+}
+
+.admin-card {
+    background: rgba(30, 45, 30, 0.95);
+    backdrop-filter: blur(12px);
+    border: 1px solid rgba(19, 125, 15, 0.3);
+}
+
+.brand-bg {
+    background-color: #137D0F;
+}
+
+.brand-color {
+    color: #137D0F;
+}
+
+.permission-badge {
+    background: rgba(19, 125, 15, 0.2);
+    border: 1px solid rgba(19, 125, 15, 0.4);
+}
+
+.toast-notification {
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    z-index: 9999;
+    animation: slideIn 0.3s ease;
+}
+
+@keyframes slideIn {
+    from {
+        transform: translateX(100%);
+        opacity: 0;
+    }
+    to {
+        transform: translateX(0);
+        opacity: 1;
+    }
+}
+
+.sync-indicator {
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+    background: rgba(0, 0, 0, 0.7);
+    backdrop-filter: blur(8px);
+    padding: 8px 16px;
+    border-radius: 20px;
+    font-size: 12px;
+    z-index: 9998;
+    color: white;
+}
+
+.delete-user-btn {
+    transition: all 0.2s ease;
+}
+
+.delete-user-btn:hover {
+    background-color: #dc2626 !important;
+    transform: scale(1.05);
+}
+
+.table-row-highlight {
+    animation: highlightFade 1s ease-out;
+}
+
+@keyframes highlightFade {
+    0% {
+        background-color: rgba(19, 125, 15, 0.4);
+    }
+    100% {
+        background-color: transparent;
+    }
+}
+
+.hidden {
+    display: none;
+}
