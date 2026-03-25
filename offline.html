@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Offline - Cars Kenya Admin</title>
+    <style>
+        body {
+            background: linear-gradient(135deg, #1a3a1a 0%, #2a5a2a 100%);
+            color: white;
+            font-family: 'Inter', sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            text-align: center;
+            padding: 20px;
+            margin: 0;
+        }
+        .container {
+            max-width: 500px;
+            background: rgba(30, 45, 30, 0.95);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(19, 125, 15, 0.3);
+            border-radius: 2rem;
+            padding: 2rem;
+        }
+        h1 {
+            color: #137D0F;
+            margin-bottom: 20px;
+        }
+        .icon {
+            font-size: 60px;
+            margin-bottom: 20px;
+            color: #137D0F;
+        }
+        p {
+            color: #e5e5e5;
+            line-height: 1.6;
+        }
+        .btn {
+            display: inline-block;
+            margin-top: 20px;
+            background: #137D0F;
+            color: white;
+            padding: 10px 20px;
+            border-radius: 8px;
+            text-decoration: none;
+            transition: all 0.2s;
+        }
+        .btn:hover {
+            background: #0f6a0c;
+            transform: translateY(-2px);
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="icon">⚠️</div>
+        <h1>You're Offline</h1>
+        <p>The Cars Kenya Admin Panel requires an internet connection to load the latest user data.</p>
+        <p>Please check your internet connection and try again.</p>
+        <a href="/" class="btn">Try Again</a>
+    </div>
+</body>
+</html>
