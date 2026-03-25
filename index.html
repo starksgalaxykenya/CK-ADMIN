@@ -1,0 +1,498 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cars Kenya - Admin Panel</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+        * { font-family: 'Inter', sans-serif; }
+        body { background: linear-gradient(135deg, #1a3a1a 0%, #2a5a2a 100%); }
+        .admin-card { background: rgba(30,45,30,0.95); backdrop-filter: blur(12px); border: 1px solid rgba(19,125,15,0.3); }
+        .brand-bg { background-color: #137D0F; }
+        .brand-color { color: #137D0F; }
+        .permission-badge { background: rgba(19,125,15,0.2); border: 1px solid rgba(19,125,15,0.4); }
+        .toast-notification { position: fixed; top: 20px; right: 20px; z-index: 9999; animation: slideIn 0.3s ease; }
+        @keyframes slideIn { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+    </style>
+</head>
+<body class="min-h-screen">
+    <!-- Navigation -->
+    <nav class="bg-gray-900/90 backdrop-blur-md border-b border-green-800/30 sticky top-0 z-50">
+        <div class="container mx-auto px-6 py-4">
+            <div class="flex items-center justify-between">
+                <div class="flex items-center space-x-4">
+                    <div class="w-12 h-12 rounded-full brand-bg flex items-center justify-center">
+                        <i class="fas fa-user-shield text-white text-xl"></i>
+                    </div>
+                    <div>
+                        <h1 class="text-2xl font-bold text-white">Admin Control Panel</h1>
+                        <p class="text-sm text-gray-400">User Management & Permissions</p>
+                    </div>
+                </div>
+                <div class="flex items-center space-x-4">
+                    <span id="adminEmail" class="text-gray-300 text-sm hidden md:block"></span>
+                    <button id="logoutBtn" class="bg-red-600 hover:bg-red-700 px-4 py-2 rounded-lg text-white transition">
+                        <i class="fas fa-sign-out-alt mr-2"></i>Logout
+                    </button>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Login Section (shown if not authenticated) -->
+    <div id="loginSection" class="min-h-screen flex items-center justify-center px-4" style="margin-top: -80px;">
+        <div class="admin-card rounded-2xl p-8 w-full max-w-md">
+            <div class="text-center mb-8">
+                <div class="w-20 h-20 rounded-full brand-bg mx-auto flex items-center justify-center">
+                    <i class="fas fa-lock text-white text-3xl"></i>
+                </div>
+                <h2 class="text-2xl font-bold text-white mt-4">Admin Login Required</h2>
+                <p class="text-gray-400 text-sm mt-2">Enter your credentials to access the admin panel</p>
+            </div>
+            <form id="adminLoginForm">
+                <div class="mb-4">
+                    <label class="block text-gray-300 mb-2">Email Address</label>
+                    <input type="email" id="adminEmailInput" class="w-full px-4 py-3 rounded-lg bg-gray-800 border border-gray-700 text-white focus:border-green-500 focus:ring-2 focus:ring-green-500 outline-none" required>
+                </div>
+                <div class="mb-6">
+                    <label class="block text-gray-300 mb-2">Password</label>
+                    <input type="password" id="adminPasswordInput" class="w-full px-4 py-3 rounded-lg bg-gray-800 border border-gray-700 text-white focus:border-green-500 focus:ring-2 focus:ring-green-500 outline-none" required>
+                </div>
+                <button type="submit" class="w-full brand-bg hover:bg-green-700 text-white font-bold py-3 rounded-lg transition-all">
+                    <i class="fas fa-sign-in-alt mr-2"></i>Login as Admin
+                </button>
+            </form>
+            <p class="text-center text-gray-500 text-xs mt-6">Only authorized administrators can access this panel</p>
+        </div>
+    </div>
+
+    <!-- Main Admin Dashboard (hidden until login) -->
+    <div id="adminDashboard" class="container mx-auto px-6 py-8 hidden">
+        <!-- Stats Cards -->
+        <div class="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
+            <div class="admin-card rounded-xl p-6">
+                <div class="flex items-center justify-between">
+                    <div><i class="fas fa-users text-3xl text-green-500"></i></div>
+                    <div class="text-right"><p class="text-gray-400 text-sm">Total Users</p><p id="totalUsers" class="text-3xl font-bold text-white">0</p></div>
+                </div>
+            </div>
+            <div class="admin-card rounded-xl p-6">
+                <div class="flex items-center justify-between">
+                    <div><i class="fas fa-check-circle text-3xl text-blue-500"></i></div>
+                    <div class="text-right"><p class="text-gray-400 text-sm">Active Permissions</p><p id="activePermissions" class="text-3xl font-bold text-white">0</p></div>
+                </div>
+            </div>
+            <div class="admin-card rounded-xl p-6">
+                <div class="flex items-center justify-between">
+                    <div><i class="fas fa-file-alt text-3xl text-purple-500"></i></div>
+                    <div class="text-right"><p class="text-gray-400 text-sm">Docs Access</p><p id="docsCount" class="text-3xl font-bold text-white">0</p></div>
+                </div>
+            </div>
+            <div class="admin-card rounded-xl p-6">
+                <div class="flex items-center justify-between">
+                    <div><i class="fas fa-car text-3xl text-orange-500"></i></div>
+                    <div class="text-right"><p class="text-gray-400 text-sm">Fleet Access</p><p id="fleetCount" class="text-3xl font-bold text-white">0</p></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- User Management Table -->
+        <div class="admin-card rounded-2xl overflow-hidden">
+            <div class="p-6 border-b border-gray-700">
+                <div class="flex flex-wrap items-center justify-between gap-4">
+                    <div>
+                        <h3 class="text-xl font-bold text-white">User Permissions Manager</h3>
+                        <p class="text-gray-400 text-sm mt-1">Assign which modules each user can access in the main dashboard</p>
+                    </div>
+                    <button id="refreshUsersBtn" class="bg-green-700 hover:bg-green-600 px-5 py-2 rounded-lg transition">
+                        <i class="fas fa-sync-alt mr-2"></i>Refresh Users
+                    </button>
+                </div>
+            </div>
+            <div class="overflow-x-auto">
+                <table class="w-full">
+                    <thead class="bg-gray-800/50">
+                        <tr>
+                            <th class="px-6 py-4 text-left text-sm font-semibold text-gray-300">User</th>
+                            <th class="px-6 py-4 text-left text-sm font-semibold text-gray-300">Email</th>
+                            <th class="px-6 py-4 text-center text-sm font-semibold text-gray-300">Documentation</th>
+                            <th class="px-6 py-4 text-center text-sm font-semibold text-gray-300">Finance</th>
+                            <th class="px-6 py-4 text-center text-sm font-semibold text-gray-300">Fleet</th>
+                            <th class="px-6 py-4 text-center text-sm font-semibold text-gray-300">Workspace</th>
+                            <th class="px-6 py-4 text-center text-sm font-semibold text-gray-300">Admin Rights</th>
+                            <th class="px-6 py-4 text-center text-sm font-semibold text-gray-300">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="usersTableBody">
+                        <tr><td colspan="8" class="text-center py-8 text-gray-400"><i class="fas fa-spinner fa-spin mr-2"></i>Loading users...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Add New User Section -->
+        <div class="admin-card rounded-2xl mt-8 p-6">
+            <h3 class="text-xl font-bold text-white mb-4"><i class="fas fa-user-plus mr-2 brand-color"></i>Create New User Account</h3>
+            <form id="createUserForm" class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <input type="email" id="newUserEmail" placeholder="Email address" class="px-4 py-3 rounded-lg bg-gray-800 border border-gray-700 text-white focus:border-green-500 outline-none" required>
+                <input type="password" id="newUserPassword" placeholder="Password" class="px-4 py-3 rounded-lg bg-gray-800 border border-gray-700 text-white focus:border-green-500 outline-none" required>
+                <div class="flex gap-2">
+                    <button type="submit" class="bg-green-700 hover:bg-green-600 px-6 py-3 rounded-lg font-semibold transition flex-1">
+                        <i class="fas fa-plus mr-2"></i>Create User
+                    </button>
+                    <button type="button" id="resetFormBtn" class="bg-gray-700 hover:bg-gray-600 px-4 py-3 rounded-lg transition">
+                        <i class="fas fa-undo-alt"></i>
+                    </button>
+                </div>
+            </form>
+            <p class="text-gray-500 text-xs mt-3">New users will have no permissions by default. Assign permissions above.</p>
+        </div>
+    </div>
+
+    <!-- Firebase Import and Script -->
+    <script type="importmap">
+        {
+            "imports": {
+                "firebase/app": "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js",
+                "firebase/auth": "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js",
+                "firebase/firestore": "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js"
+            }
+        }
+    </script>
+
+    <script type="module">
+        import { initializeApp } from "firebase/app";
+        import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged, createUserWithEmailAndPassword } from "firebase/auth";
+        import { getFirestore, doc, setDoc, getDoc, getDocs, updateDoc, collection, query, where, deleteDoc } from "firebase/firestore";
+
+        const firebaseConfig = {
+            apiKey: "AIzaSyCuUKCxYx0jYKqWOQaN82K5zFGlQsKQsK0",
+            authDomain: "ck-manager-1abdc.firebaseapp.com",
+            projectId: "ck-manager-1abdc",
+            storageBucket: "ck-manager-1abdc.firebasestorage.app",
+            messagingSenderId: "890017473158",
+            appId: "1:890017473158:web:528e1eebc4b67bd54ca707",
+            measurementId: "G-7Z71W1NSX4"
+        };
+
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+        const db = getFirestore(app);
+
+        let currentAdminUser = null;
+        let allUsers = [];
+
+        // Toast notification
+        function showToast(message, isError = false) {
+            const existing = document.querySelector('.toast-notification');
+            if (existing) existing.remove();
+            
+            const toast = document.createElement('div');
+            toast.className = `toast-notification ${isError ? 'bg-red-600' : 'bg-green-600'} text-white px-6 py-3 rounded-lg shadow-xl flex items-center`;
+            toast.innerHTML = `<i class="fas ${isError ? 'fa-exclamation-triangle' : 'fa-check-circle'} mr-3"></i>${message}`;
+            document.body.appendChild(toast);
+            setTimeout(() => toast.remove(), 3000);
+        }
+
+        // Check if user is admin
+        async function isUserAdmin(user) {
+            if (!user) return false;
+            const permDoc = await getDoc(doc(db, "users_permissions", user.uid));
+            if (permDoc.exists()) {
+                return permDoc.data().isAdmin === true;
+            }
+            return false;
+        }
+
+        // Load all users from Firestore meta
+        async function loadAllUsers() {
+            try {
+                const usersMetaSnap = await getDocs(collection(db, "users_meta"));
+                const usersList = [];
+                
+                for (const docSnap of usersMetaSnap.docs) {
+                    const userData = docSnap.data();
+                    const uid = docSnap.id;
+                    const permDoc = await getDoc(doc(db, "users_permissions", uid));
+                    let permissions = { docs: false, finance: false, fleet: false, hr: false, isAdmin: false };
+                    if (permDoc.exists()) {
+                        permissions = permDoc.data();
+                    }
+                    usersList.push({
+                        uid,
+                        email: userData.email,
+                        ...permissions
+                    });
+                }
+                
+                allUsers = usersList;
+                renderUsersTable(usersList);
+                updateStats(usersList);
+                return usersList;
+            } catch (error) {
+                console.error("Error loading users:", error);
+                showToast("Failed to load users: " + error.message, true);
+                return [];
+            }
+        }
+
+        // Update statistics
+        function updateStats(users) {
+            document.getElementById('totalUsers').textContent = users.length;
+            let totalPerms = 0;
+            let docsCount = 0, fleetCount = 0;
+            users.forEach(u => {
+                if (u.docs) { totalPerms++; docsCount++; }
+                if (u.finance) totalPerms++;
+                if (u.fleet) { totalPerms++; fleetCount++; }
+                if (u.hr) totalPerms++;
+            });
+            document.getElementById('activePermissions').textContent = totalPerms;
+            document.getElementById('docsCount').textContent = docsCount;
+            document.getElementById('fleetCount').textContent = fleetCount;
+        }
+
+        // Render users table
+        function renderUsersTable(users) {
+            const tbody = document.getElementById('usersTableBody');
+            if (users.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="8" class="text-center py-8 text-gray-400"><i class="fas fa-user-slash mr-2"></i>No users found</td></tr>';
+                return;
+            }
+            
+            tbody.innerHTML = users.map(user => `
+                <tr class="border-b border-gray-700 hover:bg-gray-800/30 transition">
+                    <td class="px-6 py-4">
+                        <div class="flex items-center">
+                            <div class="w-8 h-8 rounded-full bg-gray-700 flex items-center justify-center">
+                                <i class="fas fa-user text-sm text-gray-400"></i>
+                            </div>
+                        </div>
+                    </td>
+                    <td class="px-6 py-4 text-gray-300">${escapeHtml(user.email)}</td>
+                    <td class="px-6 py-4 text-center">
+                        <label class="inline-flex items-center cursor-pointer">
+                            <input type="checkbox" class="perm-checkbox w-5 h-5 rounded border-gray-600 bg-gray-700 text-green-600 focus:ring-green-500" 
+                                data-uid="${user.uid}" data-perm="docs" ${user.docs ? 'checked' : ''}>
+                        </label>
+                    </td>
+                    <td class="px-6 py-4 text-center">
+                        <label class="inline-flex items-center cursor-pointer">
+                            <input type="checkbox" class="perm-checkbox w-5 h-5 rounded border-gray-600 bg-gray-700 text-green-600 focus:ring-green-500" 
+                                data-uid="${user.uid}" data-perm="finance" ${user.finance ? 'checked' : ''}>
+                        </label>
+                    </td>
+                    <td class="px-6 py-4 text-center">
+                        <label class="inline-flex items-center cursor-pointer">
+                            <input type="checkbox" class="perm-checkbox w-5 h-5 rounded border-gray-600 bg-gray-700 text-green-600 focus:ring-green-500" 
+                                data-uid="${user.uid}" data-perm="fleet" ${user.fleet ? 'checked' : ''}>
+                        </label>
+                    </td>
+                    <td class="px-6 py-4 text-center">
+                        <label class="inline-flex items-center cursor-pointer">
+                            <input type="checkbox" class="perm-checkbox w-5 h-5 rounded border-gray-600 bg-gray-700 text-green-600 focus:ring-green-500" 
+                                data-uid="${user.uid}" data-perm="hr" ${user.hr ? 'checked' : ''}>
+                        </label>
+                    </td>
+                    <td class="px-6 py-4 text-center">
+                        <label class="inline-flex items-center cursor-pointer">
+                            <input type="checkbox" class="admin-checkbox w-5 h-5 rounded border-gray-600 bg-gray-700 text-yellow-600 focus:ring-yellow-500" 
+                                data-uid="${user.uid}" ${user.isAdmin ? 'checked' : ''}>
+                        </label>
+                    </td>
+                    <td class="px-6 py-4 text-center">
+                        <button class="save-user-btn bg-green-700 hover:bg-green-600 px-4 py-1.5 rounded-lg text-sm transition" data-uid="${user.uid}">
+                            <i class="fas fa-save mr-1"></i>Save
+                        </button>
+                    </td>
+                </tr>
+            `).join('');
+            
+            // Attach event listeners to save buttons
+            document.querySelectorAll('.save-user-btn').forEach(btn => {
+                btn.addEventListener('click', async (e) => {
+                    const uid = btn.getAttribute('data-uid');
+                    await saveUserPermissions(uid);
+                });
+            });
+        }
+
+        // Save permissions for a specific user
+        async function saveUserPermissions(uid) {
+            try {
+                const row = document.querySelector(`.save-user-btn[data-uid="${uid}"]`).closest('tr');
+                const permCheckboxes = row.querySelectorAll('.perm-checkbox');
+                const adminCheckbox = row.querySelector('.admin-checkbox');
+                
+                const permissions = {
+                    docs: false,
+                    finance: false,
+                    fleet: false,
+                    hr: false,
+                    isAdmin: adminCheckbox ? adminCheckbox.checked : false
+                };
+                
+                permCheckboxes.forEach(cb => {
+                    const perm = cb.getAttribute('data-perm');
+                    permissions[perm] = cb.checked;
+                });
+                
+                await updateDoc(doc(db, "users_permissions", uid), permissions);
+                showToast(`Permissions updated for ${uid.substring(0, 8)}...`);
+                
+                // Refresh stats and table
+                await loadAllUsers();
+            } catch (error) {
+                console.error("Error saving permissions:", error);
+                showToast("Failed to save permissions: " + error.message, true);
+            }
+        }
+
+        // Create new user
+        async function createNewUser(email, password) {
+            try {
+                const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+                const newUser = userCredential.user;
+                
+                // Save to users_meta
+                await setDoc(doc(db, "users_meta", newUser.uid), {
+                    email: email,
+                    createdAt: new Date().toISOString()
+                });
+                
+                // Initialize permissions (all false by default)
+                await setDoc(doc(db, "users_permissions", newUser.uid), {
+                    docs: false,
+                    finance: false,
+                    fleet: false,
+                    hr: false,
+                    isAdmin: false
+                });
+                
+                showToast(`User ${email} created successfully!`);
+                await loadAllUsers();
+                
+                // Reset form
+                document.getElementById('newUserEmail').value = '';
+                document.getElementById('newUserPassword').value = '';
+                
+            } catch (error) {
+                console.error("Error creating user:", error);
+                if (error.code === 'auth/email-already-in-use') {
+                    showToast("Email already exists", true);
+                } else {
+                    showToast("Failed to create user: " + error.message, true);
+                }
+            }
+        }
+
+        // Helper to escape HTML
+        function escapeHtml(str) {
+            if (!str) return '';
+            return str.replace(/[&<>]/g, function(m) {
+                if (m === '&') return '&amp;';
+                if (m === '<') return '&lt;';
+                if (m === '>') return '&gt;';
+                return m;
+            });
+        }
+
+        // Login handler
+        document.getElementById('adminLoginForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const email = document.getElementById('adminEmailInput').value;
+            const password = document.getElementById('adminPasswordInput').value;
+            
+            try {
+                const userCredential = await signInWithEmailAndPassword(auth, email, password);
+                const user = userCredential.user;
+                
+                // Verify admin status
+                const isAdminUser = await isUserAdmin(user);
+                if (!isAdminUser) {
+                    await signOut(auth);
+                    showToast("Access denied: You don't have admin privileges", true);
+                    return;
+                }
+                
+                currentAdminUser = user;
+                document.getElementById('adminEmail').textContent = user.email;
+                document.getElementById('loginSection').classList.add('hidden');
+                document.getElementById('adminDashboard').classList.remove('hidden');
+                await loadAllUsers();
+                showToast("Welcome to Admin Panel");
+                
+            } catch (error) {
+                console.error("Login error:", error);
+                showToast("Login failed: " + error.message, true);
+            }
+        });
+
+        // Logout handler
+        document.getElementById('logoutBtn').addEventListener('click', async () => {
+            await signOut(auth);
+            currentAdminUser = null;
+            document.getElementById('loginSection').classList.remove('hidden');
+            document.getElementById('adminDashboard').classList.add('hidden');
+            document.getElementById('adminEmailInput').value = '';
+            document.getElementById('adminPasswordInput').value = '';
+            showToast("Logged out successfully");
+        });
+
+        // Create user form
+        document.getElementById('createUserForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const email = document.getElementById('newUserEmail').value;
+            const password = document.getElementById('newUserPassword').value;
+            
+            if (!email || !password) {
+                showToast("Please fill in all fields", true);
+                return;
+            }
+            
+            if (password.length < 6) {
+                showToast("Password must be at least 6 characters", true);
+                return;
+            }
+            
+            await createNewUser(email, password);
+        });
+
+        // Reset form
+        document.getElementById('resetFormBtn').addEventListener('click', () => {
+            document.getElementById('newUserEmail').value = '';
+            document.getElementById('newUserPassword').value = '';
+        });
+
+        // Refresh button
+        document.getElementById('refreshUsersBtn').addEventListener('click', async () => {
+            await loadAllUsers();
+            showToast("Users list refreshed");
+        });
+
+        // Check auth state on load
+        onAuthStateChanged(auth, async (user) => {
+            if (user) {
+                const isAdminUser = await isUserAdmin(user);
+                if (isAdminUser) {
+                    currentAdminUser = user;
+                    document.getElementById('adminEmail').textContent = user.email;
+                    document.getElementById('loginSection').classList.add('hidden');
+                    document.getElementById('adminDashboard').classList.remove('hidden');
+                    await loadAllUsers();
+                } else {
+                    await signOut(auth);
+                    document.getElementById('loginSection').classList.remove('hidden');
+                    document.getElementById('adminDashboard').classList.add('hidden');
+                }
+            } else {
+                document.getElementById('loginSection').classList.remove('hidden');
+                document.getElementById('adminDashboard').classList.add('hidden');
+            }
+        });
+    </script>
+</body>
+</html>
