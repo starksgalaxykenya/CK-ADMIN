@@ -1,28 +1,25 @@
-import { initializeApp } from "firebase/app";
-import {
-    getAuth,
-    signInWithEmailAndPassword,
-    signOut,
-    onAuthStateChanged,
-    createUserWithEmailAndPassword
-} from "firebase/auth";
-import {
-    getFirestore,
-    doc,
-    setDoc,
-    getDoc,
-    updateDoc,
-    collection,
-    deleteDoc,
-    onSnapshot,
-    serverTimestamp
-} from "firebase/firestore";
+// Import Firebase modules (make sure these are installed or loaded via CDN)
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
+import { 
+    getAuth, 
+    signInWithEmailAndPassword, 
+    signOut, 
+    onAuthStateChanged, 
+    createUserWithEmailAndPassword 
+} from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
+import { 
+    getFirestore, 
+    doc, 
+    setDoc, 
+    getDoc, 
+    updateDoc, 
+    collection, 
+    deleteDoc, 
+    onSnapshot, 
+    serverTimestamp 
+} from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Firebase Initialisation
-// PRIMARY app  → admin authentication + all Firestore reads/writes
-// SECONDARY app → isolated user-creation so the admin session is NEVER replaced
-// ─────────────────────────────────────────────────────────────────────────────
+// Firebase Configuration - VERIFY THIS API KEY IS CORRECT
 const firebaseConfig = {
     apiKey: "AIzaSyCuUKCxYx0jYKqWOQaN82K5zFGlQsKQsK0",
     authDomain: "ck-manager-1abdc.firebaseapp.com",
@@ -33,32 +30,25 @@ const firebaseConfig = {
     measurementId: "G-7Z71W1NSX4"
 };
 
-const app          = initializeApp(firebaseConfig);
-const auth         = getAuth(app);
-const db           = getFirestore(app);
+// Initialize Firebase
+const app = initializeApp(firebaseConfig);
+const auth = getAuth(app);
+const db = getFirestore(app);
 
-// Secondary isolated app — user creation happens here, keeping admin signed in
-const secondaryApp  = initializeApp(firebaseConfig, "secondary");
+// Secondary isolated app for user creation
+const secondaryApp = initializeApp(firebaseConfig, "secondary");
 const secondaryAuth = getAuth(secondaryApp);
 
-// ─────────────────────────────────────────────────────────────────────────────
-// State
-// ─────────────────────────────────────────────────────────────────────────────
-let currentAdminUser    = null;
-let allUsers            = [];
-let isCreatingUser      = false;   // guard: prevents onAuthStateChanged re-entry
+// State variables
+let currentAdminUser = null;
+let allUsers = [];
+let isCreatingUser = false;
+let usersMetaMap = {};
+let usersPermMap = {};
+let unsubMeta = null;
+let unsubPerms = null;
 
-// In-memory maps kept in sync by real-time Firestore listeners
-let usersMetaMap        = {};      // uid → users_meta document data
-let usersPermMap        = {};      // uid → users_permissions document data
-
-// Unsubscribe handles for the real-time listeners
-let unsubMeta           = null;
-let unsubPerms          = null;
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Toast notification
-// ─────────────────────────────────────────────────────────────────────────────
+// Toast notification function
 function showToast(message, isError = false) {
     const existing = document.querySelector('.toast-notification');
     if (existing) existing.remove();
@@ -66,25 +56,25 @@ function showToast(message, isError = false) {
     const toast = document.createElement('div');
     toast.className = `toast-notification ${isError ? 'bg-red-600' : 'bg-green-600'} text-white px-6 py-3 rounded-lg shadow-xl flex items-center`;
     toast.innerHTML = `<i class="fas ${isError ? 'fa-exclamation-triangle' : 'fa-check-circle'} mr-3"></i>${message}`;
+    toast.style.position = 'fixed';
+    toast.style.bottom = '20px';
+    toast.style.right = '20px';
+    toast.style.zIndex = '9999';
     document.body.appendChild(toast);
     setTimeout(() => toast.remove(), 3500);
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Sync indicator
-// ─────────────────────────────────────────────────────────────────────────────
 function showSyncIndicator(show) {
     const indicator = document.getElementById('syncIndicator');
-    if (show) {
-        indicator.classList.remove('hidden');
-    } else {
-        indicator.classList.add('hidden');
+    if (indicator) {
+        if (show) {
+            indicator.classList.remove('hidden');
+        } else {
+            indicator.classList.add('hidden');
+        }
     }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Admin check
-// ─────────────────────────────────────────────────────────────────────────────
 async function isUserAdmin(user) {
     if (!user) return false;
     try {
@@ -99,9 +89,6 @@ async function isUserAdmin(user) {
     }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Escape HTML
-// ─────────────────────────────────────────────────────────────────────────────
 function escapeHtml(str) {
     if (!str) return '';
     return str.replace(/[&<>"']/g, m => ({
@@ -109,12 +96,7 @@ function escapeHtml(str) {
     }[m]));
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Merge both maps → build unified user list → render
-// Called by BOTH real-time snapshot listeners, so the UI is always current.
-// ─────────────────────────────────────────────────────────────────────────────
 function mergeAndRender() {
-    // Union of all UIDs seen in either collection
     const allUids = new Set([
         ...Object.keys(usersMetaMap),
         ...Object.keys(usersPermMap)
@@ -127,11 +109,9 @@ function mergeAndRender() {
         const meta = usersMetaMap[uid] || {};
         const perm = usersPermMap[uid] || { ...defaultPerms };
 
-        // Skip placeholder / pending-sync entries that still need a real UID
-        // (they remain in the map so admins can see them, but we mark them)
         users.push({
             uid,
-            email:     meta.email || perm.email || `uid-${uid.substring(0, 8)}`,
+            email: meta.email || perm.email || `uid-${uid.substring(0, 8)}`,
             pendingSync: meta.needsRealUid === true,
             ...defaultPerms,
             ...perm
@@ -143,15 +123,8 @@ function mergeAndRender() {
     updateStats(users);
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Real-time Firestore listeners
-// Using onSnapshot on BOTH collections avoids the old N+1 getDocs pattern and
-// means ANY external change (e.g. user first-login writes to users_meta) appears
-// in the panel automatically without a manual refresh.
-// ─────────────────────────────────────────────────────────────────────────────
 function setupRealtimeListeners() {
-    // Tear down any existing listeners first
-    if (unsubMeta)  { unsubMeta();  unsubMeta  = null; }
+    if (unsubMeta) { unsubMeta(); unsubMeta = null; }
     if (unsubPerms) { unsubPerms(); unsubPerms = null; }
 
     usersMetaMap = {};
@@ -198,52 +171,49 @@ function setupRealtimeListeners() {
     );
 }
 
-// Stop listeners (called on logout)
 function teardownRealtimeListeners() {
-    if (unsubMeta)  { unsubMeta();  unsubMeta  = null; }
+    if (unsubMeta) { unsubMeta(); unsubMeta = null; }
     if (unsubPerms) { unsubPerms(); unsubPerms = null; }
     usersMetaMap = {};
     usersPermMap = {};
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Legacy loadAllUsers — kept for manual Refresh button; now just shows indicator
-// while onSnapshot delivers results automatically.
-// ─────────────────────────────────────────────────────────────────────────────
 async function loadAllUsers() {
     showSyncIndicator(true);
-    // Listeners are already live; a brief delay then hide indicator
     setTimeout(() => showSyncIndicator(false), 800);
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Update dashboard stats
-// ─────────────────────────────────────────────────────────────────────────────
 function updateStats(users) {
-    document.getElementById('totalUsers').textContent = users.length;
+    const totalUsersEl = document.getElementById('totalUsers');
+    const activePermsEl = document.getElementById('activePermissions');
+    const docsCountEl = document.getElementById('docsCount');
+    const fleetCountEl = document.getElementById('fleetCount');
+    
+    if (totalUsersEl) totalUsersEl.textContent = users.length;
+    
     let totalPerms = 0, docsCount = 0, fleetCount = 0;
     users.forEach(u => {
-        if (u.docs)    { totalPerms++; docsCount++; }
-        if (u.finance)   totalPerms++;
-        if (u.fleet)   { totalPerms++; fleetCount++; }
-        if (u.hr)        totalPerms++;
+        if (u.docs) { totalPerms++; docsCount++; }
+        if (u.finance) totalPerms++;
+        if (u.fleet) { totalPerms++; fleetCount++; }
+        if (u.hr) totalPerms++;
     });
-    document.getElementById('activePermissions').textContent = totalPerms;
-    document.getElementById('docsCount').textContent = docsCount;
-    document.getElementById('fleetCount').textContent = fleetCount;
+    
+    if (activePermsEl) activePermsEl.textContent = totalPerms;
+    if (docsCountEl) docsCountEl.textContent = docsCount;
+    if (fleetCountEl) fleetCountEl.textContent = fleetCount;
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Render users table
-// ─────────────────────────────────────────────────────────────────────────────
 function renderUsersTable(users) {
     const tbody = document.getElementById('usersTableBody');
+    if (!tbody) return;
+    
     if (users.length === 0) {
         tbody.innerHTML = `
             <tr>
                 <td colspan="8" class="text-center py-8 text-gray-400">
                     <i class="fas fa-user-slash mr-2"></i>
-                    No users found. Create a user below or click "Sync All Users".
+                    No users found. Create a user below.
                 </td>
             </tr>`;
         return;
@@ -256,43 +226,29 @@ function renderUsersTable(users) {
                     <div class="w-8 h-8 rounded-full bg-gray-700 flex items-center justify-center">
                         <i class="fas fa-user text-sm text-gray-400"></i>
                     </div>
-                    ${user.pendingSync
-                        ? `<span class="text-xs text-yellow-400 permission-badge px-2 py-0.5 rounded-full">
-                               <i class="fas fa-clock mr-1"></i>Pending
-                           </span>`
-                        : ''}
+                    ${user.pendingSync ? `<span class="text-xs text-yellow-400 px-2 py-0.5 rounded-full"><i class="fas fa-clock mr-1"></i>Pending</span>` : ''}
                 </div>
             </td>
             <td class="px-6 py-4 text-gray-300 text-sm">${escapeHtml(user.email)}</td>
             <td class="px-6 py-4 text-center">
-                <label class="inline-flex items-center cursor-pointer">
-                    <input type="checkbox" class="perm-checkbox w-5 h-5 rounded border-gray-600 bg-gray-700 text-green-600 focus:ring-green-500"
-                        data-uid="${user.uid}" data-perm="docs" ${user.docs ? 'checked' : ''}>
-                </label>
+                <input type="checkbox" class="perm-checkbox w-5 h-5 rounded border-gray-600 bg-gray-700 text-green-600 focus:ring-green-500"
+                    data-uid="${user.uid}" data-perm="docs" ${user.docs ? 'checked' : ''}>
             </td>
             <td class="px-6 py-4 text-center">
-                <label class="inline-flex items-center cursor-pointer">
-                    <input type="checkbox" class="perm-checkbox w-5 h-5 rounded border-gray-600 bg-gray-700 text-green-600 focus:ring-green-500"
-                        data-uid="${user.uid}" data-perm="finance" ${user.finance ? 'checked' : ''}>
-                </label>
+                <input type="checkbox" class="perm-checkbox w-5 h-5 rounded border-gray-600 bg-gray-700 text-green-600 focus:ring-green-500"
+                    data-uid="${user.uid}" data-perm="finance" ${user.finance ? 'checked' : ''}>
             </td>
             <td class="px-6 py-4 text-center">
-                <label class="inline-flex items-center cursor-pointer">
-                    <input type="checkbox" class="perm-checkbox w-5 h-5 rounded border-gray-600 bg-gray-700 text-green-600 focus:ring-green-500"
-                        data-uid="${user.uid}" data-perm="fleet" ${user.fleet ? 'checked' : ''}>
-                </label>
+                <input type="checkbox" class="perm-checkbox w-5 h-5 rounded border-gray-600 bg-gray-700 text-green-600 focus:ring-green-500"
+                    data-uid="${user.uid}" data-perm="fleet" ${user.fleet ? 'checked' : ''}>
             </td>
             <td class="px-6 py-4 text-center">
-                <label class="inline-flex items-center cursor-pointer">
-                    <input type="checkbox" class="perm-checkbox w-5 h-5 rounded border-gray-600 bg-gray-700 text-green-600 focus:ring-green-500"
-                        data-uid="${user.uid}" data-perm="hr" ${user.hr ? 'checked' : ''}>
-                </label>
+                <input type="checkbox" class="perm-checkbox w-5 h-5 rounded border-gray-600 bg-gray-700 text-green-600 focus:ring-green-500"
+                    data-uid="${user.uid}" data-perm="hr" ${user.hr ? 'checked' : ''}>
             </td>
             <td class="px-6 py-4 text-center">
-                <label class="inline-flex items-center cursor-pointer">
-                    <input type="checkbox" class="admin-checkbox w-5 h-5 rounded border-gray-600 bg-gray-700 text-yellow-600 focus:ring-yellow-500"
-                        data-uid="${user.uid}" ${user.isAdmin ? 'checked' : ''}>
-                </label>
+                <input type="checkbox" class="admin-checkbox w-5 h-5 rounded border-gray-600 bg-gray-700 text-yellow-600 focus:ring-yellow-500"
+                    data-uid="${user.uid}" ${user.isAdmin ? 'checked' : ''}>
             </td>
             <td class="px-6 py-4 text-center">
                 <div class="flex items-center justify-center gap-2">
@@ -309,7 +265,7 @@ function renderUsersTable(users) {
         </tr>
     `).join('');
 
-    // Save buttons
+    // Attach event listeners
     document.querySelectorAll('.save-user-btn').forEach(btn => {
         btn.addEventListener('click', async () => {
             const uid = btn.getAttribute('data-uid');
@@ -317,37 +273,32 @@ function renderUsersTable(users) {
         });
     });
 
-    // Delete buttons
     document.querySelectorAll('.delete-user-btn').forEach(btn => {
         btn.addEventListener('click', async () => {
-            const uid   = btn.getAttribute('data-uid');
+            const uid = btn.getAttribute('data-uid');
             const email = btn.getAttribute('data-email');
             await deleteUser(uid, email);
         });
     });
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Save permissions for one user
-// ─────────────────────────────────────────────────────────────────────────────
 async function saveUserPermissions(uid) {
     const btn = document.querySelector(`.save-user-btn[data-uid="${uid}"]`);
     if (!btn) return;
 
-    // Optimistic UI — disable button while saving
     btn.disabled = true;
     btn.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i>Saving…';
 
     try {
-        const row            = btn.closest('tr');
+        const row = btn.closest('tr');
         const permCheckboxes = row.querySelectorAll('.perm-checkbox');
-        const adminCheckbox  = row.querySelector('.admin-checkbox');
+        const adminCheckbox = row.querySelector('.admin-checkbox');
 
         const permissions = {
-            docs:    false,
+            docs: false,
             finance: false,
-            fleet:   false,
-            hr:      false,
+            fleet: false,
+            hr: false,
             isAdmin: adminCheckbox ? adminCheckbox.checked : false,
             updatedAt: serverTimestamp(),
             updatedBy: currentAdminUser?.uid || 'admin'
@@ -358,15 +309,8 @@ async function saveUserPermissions(uid) {
             if (perm) permissions[perm] = cb.checked;
         });
 
-        // Use setDoc with merge so doc is created if missing (handles edge cases)
         await setDoc(doc(db, "users_permissions", uid), permissions, { merge: true });
-
         showToast('Permissions updated successfully');
-
-        // Highlight row briefly
-        const row2 = document.querySelector(`tr[data-uid="${uid}"]`);
-        if (row2) row2.classList.add('table-row-highlight');
-
     } catch (error) {
         console.error("Error saving permissions:", error);
         showToast("Failed to save permissions: " + error.message, true);
@@ -376,65 +320,42 @@ async function saveUserPermissions(uid) {
     }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Delete user (Firestore only — Firebase Auth account is kept intact)
-// ─────────────────────────────────────────────────────────────────────────────
 async function deleteUser(uid, email) {
-    if (!confirm(`Remove ${email} from the admin panel?\n\nThis deletes their Firestore records (permissions + metadata). Their Firebase Auth account remains — they simply won't appear here until they log in again.`)) {
+    if (!confirm(`Remove ${email} from the admin panel?\n\nThis deletes their Firestore records. Their Firebase Auth account remains.`)) {
         return;
     }
     try {
         await deleteDoc(doc(db, "users_meta", uid));
         await deleteDoc(doc(db, "users_permissions", uid));
         showToast(`${email} removed from the panel`);
-        // onSnapshot listeners will auto-update the table
     } catch (error) {
         showToast("Failed to remove user: " + error.message, true);
     }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Add a user that exists only in Firebase Auth (no Firestore docs yet)
-// Creates placeholder docs. When the user first logs into the main app and
-// that app writes their real UID to users_meta, the panel updates automatically.
-// ─────────────────────────────────────────────────────────────────────────────
 async function addExistingUserByEmail(email) {
     try {
         const tempId = `pending_${Date.now()}_${email.replace(/[^a-zA-Z0-9]/g, '_')}`;
         await setDoc(doc(db, "users_meta", tempId), {
-            email:        email,
-            createdAt:    serverTimestamp(),
-            pendingSync:  true,
+            email: email,
+            createdAt: serverTimestamp(),
+            pendingSync: true,
             needsRealUid: true
         });
         await setDoc(doc(db, "users_permissions", tempId), {
-            email:   email,
-            docs:    false,
+            email: email,
+            docs: false,
             finance: false,
-            fleet:   false,
-            hr:      false,
+            fleet: false,
+            hr: false,
             isAdmin: false
         });
-        showToast(`${email} added as pending. Permissions will link automatically on their first login.`);
-        // onSnapshot will update the table
+        showToast(`${email} added as pending.`);
     } catch (error) {
         showToast("Failed to add user: " + error.message, true);
     }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Create a brand-new Firebase Auth user
-//
-// ROOT CAUSE FIX:
-//   createUserWithEmailAndPassword on the PRIMARY auth instance automatically
-//   signs out the admin and signs in the new user — triggering onAuthStateChanged,
-//   which sees a non-admin and calls signOut(), booting the new user from the
-//   main app too.
-//
-//   Solution: use the SECONDARY app's isolated auth instance.
-//   The secondary instance has its own session store and does NOT affect the
-//   primary admin session at all.
-// ─────────────────────────────────────────────────────────────────────────────
 async function createNewUser(email, password) {
     isCreatingUser = true;
     showSyncIndicator(true);
@@ -446,45 +367,37 @@ async function createNewUser(email, password) {
     }
 
     try {
-        // ✅ Create via SECONDARY auth — admin session on PRIMARY is untouched
         const credential = await createUserWithEmailAndPassword(secondaryAuth, email, password);
-        const newUser    = credential.user;
-
-        // Immediately sign out of the secondary instance — no session pollution
+        const newUser = credential.user;
         await signOut(secondaryAuth);
 
-        // Write Firestore docs using the PRIMARY db connection (admin is still authed)
         await setDoc(doc(db, "users_meta", newUser.uid), {
-            email:     email,
-            uid:       newUser.uid,
+            email: email,
+            uid: newUser.uid,
             createdAt: serverTimestamp(),
             createdBy: currentAdminUser?.uid || 'admin'
         });
 
         await setDoc(doc(db, "users_permissions", newUser.uid), {
-            email:   email,
-            uid:     newUser.uid,
-            docs:    false,
+            email: email,
+            uid: newUser.uid,
+            docs: false,
             finance: false,
-            fleet:   false,
-            hr:      false,
+            fleet: false,
+            hr: false,
             isAdmin: false,
             createdAt: serverTimestamp()
         });
 
         showToast(`User ${email} created successfully!`);
-
-        // Reset form fields
-        document.getElementById('newUserEmail').value    = '';
+        document.getElementById('newUserEmail').value = '';
         document.getElementById('newUserPassword').value = '';
-
-        // onSnapshot listeners will auto-add the new row
 
     } catch (error) {
         console.error("Error creating user:", error);
 
         if (error.code === 'auth/email-already-in-use') {
-            if (confirm(`${email} already exists in Firebase Auth but may not have Firestore records.\n\nAdd them as a pending user to this panel?`)) {
+            if (confirm(`${email} already exists. Add them as pending?`)) {
                 await addExistingUserByEmail(email);
             } else {
                 showToast("Email already in use", true);
@@ -506,57 +419,45 @@ async function createNewUser(email, password) {
     }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Sync All Users
-// With onSnapshot already active, this is mainly a visual confirmation trigger.
-// ─────────────────────────────────────────────────────────────────────────────
 async function syncAllUsers() {
     showToast("Syncing user list in real-time…");
     showSyncIndicator(true);
-    // Re-attach listeners to force a fresh read from server
     setupRealtimeListeners();
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Show the admin dashboard and start real-time sync
-// ─────────────────────────────────────────────────────────────────────────────
 function showDashboard(user) {
     currentAdminUser = user;
-    document.getElementById('adminEmail').textContent = user.email;
-    document.getElementById('loginSection').classList.add('hidden');
-    document.getElementById('adminDashboard').classList.remove('hidden');
+    const adminEmailEl = document.getElementById('adminEmail');
+    const loginSection = document.getElementById('loginSection');
+    const adminDashboard = document.getElementById('adminDashboard');
+    
+    if (adminEmailEl) adminEmailEl.textContent = user.email;
+    if (loginSection) loginSection.classList.add('hidden');
+    if (adminDashboard) adminDashboard.classList.remove('hidden');
     setupRealtimeListeners();
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Hide dashboard and clean up
-// ─────────────────────────────────────────────────────────────────────────────
 function hideDashboard() {
     currentAdminUser = null;
     teardownRealtimeListeners();
-    document.getElementById('loginSection').classList.remove('hidden');
-    document.getElementById('adminDashboard').classList.add('hidden');
-    document.getElementById('adminEmail').textContent = '';
+    const loginSection = document.getElementById('loginSection');
+    const adminDashboard = document.getElementById('adminDashboard');
+    const adminEmailEl = document.getElementById('adminEmail');
+    
+    if (loginSection) loginSection.classList.remove('hidden');
+    if (adminDashboard) adminDashboard.classList.add('hidden');
+    if (adminEmailEl) adminEmailEl.textContent = '';
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
 // Auth state observer
-//
-// Guard: if isCreatingUser is true we are in the middle of a user-creation
-// cycle. Because we now use the SECONDARY app, onAuthStateChanged on the
-// PRIMARY auth should never fire during creation — but the flag is kept as a
-// safety net in case of any edge-case SDK behaviour.
-// ─────────────────────────────────────────────────────────────────────────────
 onAuthStateChanged(auth, async (user) => {
-    if (isCreatingUser) return; // safety guard — should not be needed with secondary app
+    if (isCreatingUser) return;
 
     if (user) {
         const adminOk = await isUserAdmin(user);
         if (adminOk) {
             showDashboard(user);
         } else {
-            // Not an admin — sign out silently (this path is hit when a
-            // non-admin somehow lands on this page, NOT during user creation)
             await signOut(auth);
             hideDashboard();
             showToast("Access denied: no admin privileges", true);
@@ -566,96 +467,132 @@ onAuthStateChanged(auth, async (user) => {
     }
 });
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Login form
-// ─────────────────────────────────────────────────────────────────────────────
-document.getElementById('adminLoginForm').addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const email    = document.getElementById('adminEmailInput').value.trim();
-    const password = document.getElementById('adminPasswordInput').value;
+// Login form handler
+const loginForm = document.getElementById('adminLoginForm');
+if (loginForm) {
+    loginForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const email = document.getElementById('adminEmailInput').value.trim();
+        const password = document.getElementById('adminPasswordInput').value;
 
-    const loginBtn = e.target.querySelector('button[type="submit"]');
-    loginBtn.disabled = true;
-    loginBtn.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>Verifying…';
+        const loginBtn = e.target.querySelector('button[type="submit"]');
+        if (loginBtn) {
+            loginBtn.disabled = true;
+            loginBtn.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>Verifying…';
+        }
 
-    try {
-        showSyncIndicator(true);
-        const credential = await signInWithEmailAndPassword(auth, email, password);
-        const user       = credential.user;
+        try {
+            showSyncIndicator(true);
+            const credential = await signInWithEmailAndPassword(auth, email, password);
+            const user = credential.user;
 
-        const adminOk = await isUserAdmin(user);
-        if (!adminOk) {
-            await signOut(auth);
-            showToast("Access denied: You don't have admin privileges", true);
+            const adminOk = await isUserAdmin(user);
+            if (!adminOk) {
+                await signOut(auth);
+                showToast("Access denied: You don't have admin privileges", true);
+                showSyncIndicator(false);
+                return;
+            }
+
+            showToast("Welcome to the Admin Panel");
+
+        } catch (error) {
+            console.error("Login error:", error);
+            let errorMessage = "";
+            
+            switch (error.code) {
+                case 'auth/invalid-credential':
+                    errorMessage = 'Invalid email or password';
+                    break;
+                case 'auth/invalid-email':
+                    errorMessage = 'Invalid email address format';
+                    break;
+                case 'auth/user-disabled':
+                    errorMessage = 'This account has been disabled';
+                    break;
+                case 'auth/too-many-requests':
+                    errorMessage = 'Too many failed attempts. Please try again later';
+                    break;
+                case 'auth/network-request-failed':
+                    errorMessage = 'Network error. Please check your connection';
+                    break;
+                default:
+                    errorMessage = error.message || 'Login failed';
+            }
+            
+            showToast("Login failed: " + errorMessage, true);
             showSyncIndicator(false);
+        } finally {
+            if (loginBtn) {
+                loginBtn.disabled = false;
+                loginBtn.innerHTML = '<i class="fas fa-sign-in-alt mr-2"></i>Login as Admin';
+            }
+        }
+    });
+}
+
+// Logout handler
+const logoutBtn = document.getElementById('logoutBtn');
+if (logoutBtn) {
+    logoutBtn.addEventListener('click', async () => {
+        teardownRealtimeListeners();
+        await signOut(auth);
+        const emailInput = document.getElementById('adminEmailInput');
+        const passwordInput = document.getElementById('adminPasswordInput');
+        if (emailInput) emailInput.value = '';
+        if (passwordInput) passwordInput.value = '';
+        showToast("Logged out successfully");
+    });
+}
+
+// Create user form handler
+const createUserForm = document.getElementById('createUserForm');
+if (createUserForm) {
+    createUserForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const email = document.getElementById('newUserEmail').value.trim();
+        const password = document.getElementById('newUserPassword').value;
+
+        if (!email || !password) {
+            showToast("Please fill in both email and password", true);
+            return;
+        }
+        if (password.length < 6) {
+            showToast("Password must be at least 6 characters", true);
             return;
         }
 
-        // onAuthStateChanged will call showDashboard automatically
-        showToast("Welcome to the Admin Panel");
+        await createNewUser(email, password);
+    });
+}
 
-    } catch (error) {
-        console.error("Login error:", error);
-        const msg = {
-            'auth/user-not-found':  'No account found with that email',
-            'auth/wrong-password':  'Incorrect password',
-            'auth/invalid-email':   'Invalid email address',
-            'auth/too-many-requests': 'Too many attempts — try again later'
-        }[error.code] || error.message;
-        showToast("Login failed: " + msg, true);
-        showSyncIndicator(false);
-    } finally {
-        loginBtn.disabled = false;
-        loginBtn.innerHTML = '<i class="fas fa-sign-in-alt mr-2"></i>Login as Admin';
-    }
-});
+// Reset form button
+const resetFormBtn = document.getElementById('resetFormBtn');
+if (resetFormBtn) {
+    resetFormBtn.addEventListener('click', () => {
+        const emailInput = document.getElementById('newUserEmail');
+        const passwordInput = document.getElementById('newUserPassword');
+        if (emailInput) emailInput.value = '';
+        if (passwordInput) passwordInput.value = '';
+    });
+}
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Logout
-// ─────────────────────────────────────────────────────────────────────────────
-document.getElementById('logoutBtn').addEventListener('click', async () => {
-    teardownRealtimeListeners();
-    await signOut(auth);
-    document.getElementById('adminEmailInput').value    = '';
-    document.getElementById('adminPasswordInput').value = '';
-    showToast("Logged out successfully");
-    // hideDashboard() is called by onAuthStateChanged
-});
+// Refresh button
+const refreshUsersBtn = document.getElementById('refreshUsersBtn');
+if (refreshUsersBtn) {
+    refreshUsersBtn.addEventListener('click', async () => {
+        showSyncIndicator(true);
+        showToast("Refreshing…");
+        setupRealtimeListeners();
+    });
+}
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Create user form
-// ─────────────────────────────────────────────────────────────────────────────
-document.getElementById('createUserForm').addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const email    = document.getElementById('newUserEmail').value.trim();
-    const password = document.getElementById('newUserPassword').value;
+// Sync all users button
+const syncAllUsersBtn = document.getElementById('syncAllUsersBtn');
+if (syncAllUsersBtn) {
+    syncAllUsersBtn.addEventListener('click', async () => {
+        await syncAllUsers();
+    });
+}
 
-    if (!email || !password) {
-        showToast("Please fill in both email and password", true);
-        return;
-    }
-    if (password.length < 6) {
-        showToast("Password must be at least 6 characters", true);
-        return;
-    }
-
-    await createNewUser(email, password);
-});
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Misc button handlers
-// ─────────────────────────────────────────────────────────────────────────────
-document.getElementById('resetFormBtn').addEventListener('click', () => {
-    document.getElementById('newUserEmail').value    = '';
-    document.getElementById('newUserPassword').value = '';
-});
-
-document.getElementById('refreshUsersBtn').addEventListener('click', async () => {
-    showSyncIndicator(true);
-    showToast("Refreshing…");
-    setupRealtimeListeners();
-});
-
-document.getElementById('syncAllUsersBtn').addEventListener('click', async () => {
-    await syncAllUsers();
-});
+console.log('Admin panel loaded successfully');
